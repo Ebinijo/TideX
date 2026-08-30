@@ -63,26 +63,17 @@ class Environment:
         if 'depth' in self.ds_cmems.dims or 'depth' in self.ds_cmems.coords:
             self.ds_cmems = self.ds_cmems.isel(depth=0)
 
-        # Subset CMEMS dynamically around ERA5 spatial region
-        era5_lats = self.ds_era5[self.era5_lat_name].values
-        era5_lons = self.ds_era5[self.era5_lon_name].values
-
-        min_lat, max_lat = float(np.min(era5_lats)) - 0.5, float(np.max(era5_lats)) + 0.5
-        min_lon, max_lon = float(np.min(era5_lons)) - 0.5, float(np.max(era5_lons)) + 0.5
-
+        # Subset CMEMS to 14-16 N and 71-73 E
         cmems_lats = self.ds_cmems[self.cmems_lat_name].values
         cmems_lons = self.ds_cmems[self.cmems_lon_name].values
 
-        lat_mask = (cmems_lats >= min_lat) & (cmems_lats <= max_lat)
-        lon_mask = (cmems_lons >= min_lon) & (cmems_lons <= max_lon)
+        lat_mask = (cmems_lats >= 13.9) & (cmems_lats <= 16.1)
+        lon_mask = (cmems_lons >= 70.9) & (cmems_lons <= 73.1)
 
-        if np.any(lat_mask) and np.any(lon_mask):
-            self.ds_cmems_sub = self.ds_cmems.sel({
-                self.cmems_lat_name: cmems_lats[lat_mask],
-                self.cmems_lon_name: cmems_lons[lon_mask]
-            })
-        else:
-            self.ds_cmems_sub = self.ds_cmems
+        self.ds_cmems_sub = self.ds_cmems.sel({
+            self.cmems_lat_name: cmems_lats[lat_mask],
+            self.cmems_lon_name: cmems_lons[lon_mask]
+        })
 
         # Set reference epoch for timestamp conversion (seconds since 2000-01-01)
         self.ref_epoch = pd.Timestamp("2000-01-01T00:00:00")
@@ -129,10 +120,6 @@ class Environment:
         u10_vals = self.ds_era5[self.u10_name].values[:, e_lat_order, :][:, :, e_lon_order]
         v10_vals = self.ds_era5[self.v10_name].values[:, e_lat_order, :][:, :, e_lon_order]
 
-        self.e_time_min, self.e_time_max = float(e_time_sec.min()), float(e_time_sec.max())
-        self.e_lat_min, self.e_lat_max = float(e_lats_sorted.min()), float(e_lats_sorted.max())
-        self.e_lon_min, self.e_lon_max = float(e_lons_sorted.min()), float(e_lons_sorted.max())
-
         self.interp_u10 = RegularGridInterpolator(
             (e_time_sec, e_lats_sorted, e_lons_sorted), u10_vals,
             bounds_error=False, fill_value=None
@@ -156,10 +143,6 @@ class Environment:
         uo_vals = self.ds_cmems_sub[self.uo_name].values[:, c_lat_order, :][:, :, c_lon_order]
         vo_vals = self.ds_cmems_sub[self.vo_name].values[:, c_lat_order, :][:, :, c_lon_order]
 
-        self.c_time_min, self.c_time_max = float(c_time_sec.min()), float(c_time_sec.max())
-        self.c_lat_min, self.c_lat_max = float(c_lats_sorted.min()), float(c_lats_sorted.max())
-        self.c_lon_min, self.c_lon_max = float(c_lons_sorted.min()), float(c_lons_sorted.max())
-
         self.interp_uo = RegularGridInterpolator(
             (c_time_sec, c_lats_sorted, c_lons_sorted), uo_vals,
             bounds_error=False, fill_value=None
@@ -174,7 +157,6 @@ class Environment:
     def get_vectors(self, lats, lons, timestamp):
         """
         Interpolate (u_wind, v_wind, u_curr, v_curr) at positions (lats, lons) and given timestamp.
-        Safely clamps query coordinates and timestamps to valid grid boundaries.
 
         Parameters:
         -----------
@@ -197,23 +179,14 @@ class Environment:
         else:
             ts_sec = float(timestamp)
 
-        # Physically transparent boundary clamping to grid domain bounds
-        e_t = np.clip(np.full_like(lats, ts_sec), self.e_time_min, self.e_time_max)
-        e_lat = np.clip(lats, self.e_lat_min, self.e_lat_max)
-        e_lon = np.clip(lons, self.e_lon_min, self.e_lon_max)
-        pts_era5 = np.column_stack([e_t, e_lat, e_lon])
+        pts = np.column_stack([np.full_like(lats, ts_sec), lats, lons])
 
-        c_t = np.clip(np.full_like(lats, ts_sec), self.c_time_min, self.c_time_max)
-        c_lat = np.clip(lats, self.c_lat_min, self.c_lat_max)
-        c_lon = np.clip(lons, self.c_lon_min, self.c_lon_max)
-        pts_cmems = np.column_stack([c_t, c_lat, c_lon])
+        u_wind = self.interp_u10(pts)
+        v_wind = self.interp_v10(pts)
+        u_curr = self.interp_uo(pts)
+        v_curr = self.interp_vo(pts)
 
-        u_wind = self.interp_u10(pts_era5)
-        v_wind = self.interp_v10(pts_era5)
-        u_curr = self.interp_uo(pts_cmems)
-        v_curr = self.interp_vo(pts_cmems)
-
-        # Replace any residual NaN extrapolations with 0.0
+        # Replace any NaN extrapolations with 0.0
         u_wind = np.nan_to_num(u_wind, nan=0.0)
         v_wind = np.nan_to_num(v_wind, nan=0.0)
         u_curr = np.nan_to_num(u_curr, nan=0.0)

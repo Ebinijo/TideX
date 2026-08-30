@@ -1,12 +1,14 @@
+import os
 import json
 from environment import Environment
 from backtrack import backtrack
 from forecast import forecast
+from p1_loader import load_p1_data, check_environmental_compatibility
 
 
 def run_p2_demo():
     print("=" * 60)
-    print("TideX P2 MVP Lagrangian Oil-Spill Drift Demonstration")
+    print("TideX P2 MVP Lagrangian Oil-Spill Drift Demonstration (Synthetic Mode)")
     print("=" * 60)
 
     # 1. Initialize Environmental Handler
@@ -86,9 +88,128 @@ def run_p2_demo():
     print(json.dumps(fwd_trajectories['features'][0], indent=2))
 
     print("\n" + "=" * 60)
-    print("SUCCESS: TideX P2 MVP Lagrangian simulation completed cleanly!")
+    print("SUCCESS: Synthetic P2 MVP Lagrangian simulation completed cleanly!")
     print("=" * 60)
+    return env
+
+
+def run_p1_demo(env=None):
+    print("\n" + "=" * 60)
+    print("TideX Real P1 Spill Integration Mode")
+    print("=" * 60)
+
+    # 1. Load P1 outputs dynamically
+    print("\n[Step 1] Loading P1 Satellite Spill Detection Outputs dynamically...")
+    p1_info = load_p1_data(
+        geojson_path='data/spill_aoi.geojson',
+        metadata_path='data/metadata.json'
+    )
+
+    centroid = p1_info["centroid"]
+    bounds = p1_info["aoi_bounds"]
+    metadata = p1_info["metadata"]
+    obs_date = p1_info["observation_date"]
+
+    print("\n--- REAL P1 SPILL DETECTION REPORT ---")
+    print(f"Spill Detected          : {metadata.get('spill_detected')}")
+    print(f"Detection Confidence    : {metadata.get('confidence')}")
+    print(f"Area (km²)              : {metadata.get('area_km2')}")
+    print(f"Total Polygons (AOI)    : {p1_info['feature_count']}")
+    print(f"CRS                     : {metadata.get('crs')}")
+    print(f"Source Image            : {metadata.get('source_image')}")
+    print(f"Parsed Observation Date : {obs_date}")
+    print(f"Observed Spill Centroid : Lat {centroid.get('lat'):.5f}°N, Lon {centroid.get('lon'):.5f}°E")
+    print(f"AOI Bounding Box        : Lon [{bounds[0]:.5f}, {bounds[2]:.5f}], Lat [{bounds[1]:.5f}, {bounds[3]:.5f}]")
+
+    # 2. Initialize Environmental Handler if not provided
+    if env is None:
+        print("\n[Step 2] Initializing Environmental Forcing Handler...")
+        env = Environment()
+
+    # 3. Check Environmental Forcing Compatibility
+    print("\n[Step 3] Validating Environmental Forcing Match...")
+    compat = check_environmental_compatibility(p1_info, env)
+
+    print("\n--- ENVIRONMENTAL MATCH CHECK ---")
+    print(f"Available ERA5/CMEMS Dates : {compat['env_time_range'][0]} to {compat['env_time_range'][1]}")
+    print(f"Available ERA5/CMEMS Grid  : Lat {compat['env_lat_range'][0]}° to {compat['env_lat_range'][1]}°N, Lon {compat['env_lon_range'][0]}° to {compat['env_lon_range'][1]}°E")
+    print(f"P1 Observation Requirement : Date {obs_date}, Centroid Lat {centroid.get('lat')}°N, Lon {centroid.get('lon')}°E")
+
+    if not compat["compatible"]:
+        print("\n" + "!" * 60)
+        print("REAL P1 HINDCAST STATUS: CANNOT EXECUTE (FORCING MISMATCH)")
+        print("!" * 60)
+        print(f"Reason: {compat['reason']}")
+        print("Note: The real P1 satellite observation (2018-08-21 in Gulf of Mexico) requires matching 2018 ERA5 wind and CMEMS current forcing datasets.")
+        print("As required, the simulation was not executed with invalid forcing data and no results were fabricated.")
+        print("=" * 60)
+        return {
+            "p1_info": p1_info,
+            "status": "FORCING_MISMATCH",
+            "reason": compat["reason"]
+        }
+    else:
+        # Run backtrack simulation for real P1 spill
+        obs_timestamp = f"{obs_date}T12:00:00Z"
+        print(f"\n[Step 4] Running Backtrack Hindcast for Real P1 Spill at {obs_timestamp}...")
+        backtrack_results = backtrack(
+            spill_polygon=p1_info["geojson"],
+            observation_time=obs_timestamp,
+            duration_hours=24,
+            num_particles=500,
+            env=env
+        )
+
+        # Save GeoJSON outputs to outputs/ folder
+        os.makedirs("outputs", exist_ok=True)
+        source_out_path = os.path.join("outputs", "p1_probable_source.geojson")
+        trajs_out_path = os.path.join("outputs", "p1_backward_trajectories.geojson")
+
+        probable_source = backtrack_results["probable_source_region"]
+        backward_trajs = backtrack_results["backward_trajectories"]
+
+        with open(source_out_path, "w") as f:
+            json.dump(probable_source, f, indent=2)
+
+        with open(trajs_out_path, "w") as f:
+            json.dump(backward_trajs, f, indent=2)
+
+        # Calculate estimated source centroid dynamically from geometry coordinates
+        source_coords = probable_source["geometry"]["coordinates"][0]
+        lons_pts = [pt[0] for pt in source_coords]
+        lats_pts = [pt[1] for pt in source_coords]
+        est_source_centroid = {
+            "lat": float(sum(lats_pts) / len(lats_pts)),
+            "lon": float(sum(lons_pts) / len(lons_pts))
+        }
+        origin_time = probable_source["properties"]["estimated_origin_time"]
+
+        print("\n" + "=" * 60)
+        print("REAL P1 BACKTRACK HINDCAST RESULTS SAVED")
+        print("=" * 60)
+        print(f"Probable Source File   : {source_out_path}")
+        print(f"Backward Trajs File    : {trajs_out_path}")
+        print(f"Estimated Origin Time  : {origin_time}")
+        print(f"Estimated Source Center: Lat {est_source_centroid['lat']:.5f}°N, Lon {est_source_centroid['lon']:.5f}°E")
+        print("=" * 60)
+
+        return {
+            "p1_info": p1_info,
+            "status": "COMPLETED",
+            "backtrack_results": backtrack_results,
+            "source_file": source_out_path,
+            "trajectories_file": trajs_out_path,
+            "origin_time": origin_time,
+            "estimated_source_centroid": est_source_centroid
+        }
 
 
 if __name__ == '__main__':
     run_p2_demo()
+    p1_era5 = 'data/era5_p1_2018.nc'
+    p1_cmems = 'data/cmems_p1_2018.nc'
+    if os.path.exists(p1_era5) and os.path.exists(p1_cmems):
+        p1_env = Environment(era5_path=p1_era5, cmems_path=p1_cmems)
+    else:
+        p1_env = None
+    run_p1_demo(env=p1_env)

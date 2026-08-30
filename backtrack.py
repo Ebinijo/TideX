@@ -45,23 +45,48 @@ def _coords_to_geojson_polygon(lons, lats, use_convex_hull=True):
 
 def _sample_points_in_polygon(spill_polygon, num_particles=500):
     """
-    Sample particles within or around input GeoJSON spill_polygon.
+    Sample particles within or around input GeoJSON spill_polygon, Feature, FeatureCollection, or point.
     """
-    if isinstance(spill_polygon, dict) and "coordinates" in spill_polygon:
-        coords = np.array(spill_polygon["coordinates"][0])
-        min_lon, min_lat = np.min(coords, axis=0)
-        max_lon, max_lat = np.max(coords, axis=0)
+    min_lon, max_lon, min_lat, max_lat = None, None, None, None
+
+    if isinstance(spill_polygon, dict):
+        all_lons = []
+        all_lats = []
+
+        features = spill_polygon.get("features", [spill_polygon] if spill_polygon.get("type") == "Feature" else [])
+        if not features and "coordinates" in spill_polygon:
+            features = [{"geometry": spill_polygon}]
+
+        for feat in features:
+            geom = feat.get("geometry", feat)
+            coords = geom.get("coordinates", [])
+            g_type = geom.get("type", "")
+
+            if g_type == "Polygon":
+                for ring in coords:
+                    for pt in ring:
+                        all_lons.append(pt[0])
+                        all_lats.append(pt[1])
+            elif g_type == "MultiPolygon":
+                for poly in coords:
+                    for ring in poly:
+                        for pt in ring:
+                            all_lons.append(pt[0])
+                            all_lats.append(pt[1])
+
+        if all_lons and all_lats:
+            min_lon, max_lon = float(np.min(all_lons)), float(np.max(all_lons))
+            min_lat, max_lat = float(np.min(all_lats)), float(np.max(all_lats))
+
     elif isinstance(spill_polygon, (list, tuple)) and len(spill_polygon) == 2:
-        # Given center lat, lon or point
         center_lat, center_lon = spill_polygon
         min_lat, max_lat = center_lat - 0.05, center_lat + 0.05
         min_lon, max_lon = center_lon - 0.05, center_lon + 0.05
-    else:
-        # Default fallback near lat 15.0, lon 72.0
+
+    if min_lon is None:
         min_lat, max_lat = 14.95, 15.05
         min_lon, max_lon = 71.95, 72.05
 
-    # Uniform random sampling within bounding box
     lats = np.random.uniform(min_lat, max_lat, size=num_particles)
     lons = np.random.uniform(min_lon, max_lon, size=num_particles)
 
