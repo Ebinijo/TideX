@@ -90,7 +90,16 @@ def run_p2_demo():
     print("\n" + "=" * 60)
     print("SUCCESS: Synthetic P2 MVP Lagrangian simulation completed cleanly!")
     print("=" * 60)
-    return env
+    return {
+        "status": "COMPLETED",
+        "env": env,
+        "backtrack_results": backtrack_results,
+        "forecast_results": forecast_results,
+        "probable_source_region": probable_source,
+        "backward_trajectories": back_trajectories,
+        "forecast_uncertainty_polygon": fwd_uncertainty,
+        "future_trajectories": fwd_trajectories
+    }
 
 
 def run_p1_demo(env=None):
@@ -160,10 +169,10 @@ def run_p1_demo(env=None):
             env=env
         )
 
-        # Save GeoJSON outputs to outputs/ folder
+        # Save GeoJSON hindcast outputs to outputs/ folder
         os.makedirs("outputs", exist_ok=True)
         source_out_path = os.path.join("outputs", "p1_probable_source.geojson")
-        trajs_out_path = os.path.join("outputs", "p1_backward_trajectories.geojson")
+        back_trajs_out_path = os.path.join("outputs", "p1_backward_trajectories.geojson")
 
         probable_source = backtrack_results["probable_source_region"]
         backward_trajs = backtrack_results["backward_trajectories"]
@@ -171,7 +180,7 @@ def run_p1_demo(env=None):
         with open(source_out_path, "w") as f:
             json.dump(probable_source, f, indent=2)
 
-        with open(trajs_out_path, "w") as f:
+        with open(back_trajs_out_path, "w") as f:
             json.dump(backward_trajs, f, indent=2)
 
         # Calculate estimated source centroid dynamically from geometry coordinates
@@ -184,24 +193,74 @@ def run_p1_demo(env=None):
         }
         origin_time = probable_source["properties"]["estimated_origin_time"]
 
+        # Run 24-hour Forward Forecast from estimated origin region
+        print(f"\n[Step 5] Running Forward Forecast for Real P1 Spill starting at {origin_time}...")
+        forecast_results = forecast(
+            source_region=probable_source,
+            start_time=origin_time,
+            duration_hours=24,
+            num_particles=500,
+            env=env
+        )
+
+        fwd_trajs_out_path = os.path.join("outputs", "p1_forward_trajectories.geojson")
+        fwd_uncert_out_path = os.path.join("outputs", "p1_forecast_uncertainty.geojson")
+
+        fwd_trajs = forecast_results["future_trajectories"]
+        fwd_uncert = forecast_results["forecast_uncertainty_polygon"]
+
+        with open(fwd_trajs_out_path, "w") as f:
+            json.dump(fwd_trajs, f, indent=2)
+
+        with open(fwd_uncert_out_path, "w") as f:
+            json.dump(fwd_uncert, f, indent=2)
+
         print("\n" + "=" * 60)
-        print("REAL P1 BACKTRACK HINDCAST RESULTS SAVED")
+        print("REAL P1 SIMULATION RESULTS SAVED")
         print("=" * 60)
-        print(f"Probable Source File   : {source_out_path}")
-        print(f"Backward Trajs File    : {trajs_out_path}")
-        print(f"Estimated Origin Time  : {origin_time}")
-        print(f"Estimated Source Center: Lat {est_source_centroid['lat']:.5f}°N, Lon {est_source_centroid['lon']:.5f}°E")
+        print(f"Probable Source File     : {source_out_path}")
+        print(f"Backward Trajectories    : {back_trajs_out_path}")
+        print(f"Forecast Envelope File   : {fwd_uncert_out_path}")
+        print(f"Forward Trajectories     : {fwd_trajs_out_path}")
+        print(f"Estimated Origin Time    : {origin_time}")
+        print(f"Estimated Source Center  : Lat {est_source_centroid['lat']:.5f}°N, Lon {est_source_centroid['lon']:.5f}°E")
         print("=" * 60)
 
         return {
             "p1_info": p1_info,
             "status": "COMPLETED",
             "backtrack_results": backtrack_results,
+            "forecast_results": forecast_results,
             "source_file": source_out_path,
-            "trajectories_file": trajs_out_path,
+            "back_trajectories_file": back_trajs_out_path,
+            "forecast_uncertainty_file": fwd_uncert_out_path,
+            "fwd_trajectories_file": fwd_trajs_out_path,
             "origin_time": origin_time,
             "estimated_source_centroid": est_source_centroid
         }
+
+
+def test_p2_synthetic_demo():
+    """Pytest test case for synthetic P2 demonstration."""
+    res = run_p2_demo()
+    assert res is not None
+    assert "probable_source_region" in res
+
+
+def test_p1_real_demo():
+    """Pytest test case for real P1 Gulf of Mexico 2018 integration."""
+    p1_era5 = os.path.join('data', 'era5_p1_2018.nc')
+    p1_cmems = os.path.join('data', 'cmems_p1_2018.nc')
+    if os.path.exists(p1_era5) and os.path.exists(p1_cmems):
+        p1_env = Environment(era5_path=p1_era5, cmems_path=p1_cmems)
+    else:
+        p1_env = None
+    res = run_p1_demo(env=p1_env)
+    assert res["status"] == "COMPLETED"
+    assert os.path.exists(res["source_file"])
+    assert os.path.exists(res["back_trajectories_file"])
+    assert os.path.exists(res["forecast_uncertainty_file"])
+    assert os.path.exists(res["fwd_trajectories_file"])
 
 
 if __name__ == '__main__':

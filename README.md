@@ -53,7 +53,7 @@ pip install -r requirements.txt
 
 ## 4. Preparing / Downloading Environmental Data (`setup_data.py`)
 
-If you are setting up a fresh clone or need to download fresh ERA5 / CMEMS environmental forcing data for a new satellite spill observation:
+If setting up a fresh clone or downloading fresh ERA5 / CMEMS environmental forcing data for a new satellite spill observation:
 
 1. **Set Environment Credentials (Optional / As Needed):**
    > [!IMPORTANT]
@@ -78,22 +78,34 @@ If you are setting up a fresh clone or need to download fresh ERA5 / CMEMS envir
 
 ---
 
-## 5. Running the Simulation (`test_p2.py`)
+## 5. Running the Simulation & Testing
 
-To run the complete TideX P2 simulation test suite (Synthetic P2 Demonstration + Real P1 Integration Mode):
+### Running the End-to-End Simulation Engine (`test_p2.py`)
+
+To run the complete TideX P2 simulation test suite (Synthetic P2 Demonstration + Real P1 24h Hindcast & 24h Forecast):
 
 ```powershell
 python test_p2.py
+```
+
+### Running Unit Tests (`pytest`)
+
+To run the automated `pytest` test suite covering environment ingestion, boundary clamping, Lagrangian drift step physics, backtrack hindcasting, forward forecasting, and GeoJSON validity:
+
+```powershell
+python -m pytest -v
 ```
 
 ---
 
 ## 6. Expected Output Files
 
-Upon successful execution, output artifacts are generated under the `outputs/` directory:
+Upon successful execution of `test_p2.py`, output artifacts are generated under the `outputs/` directory:
 
 - **`outputs/p1_probable_source.geojson`**: GeoJSON Polygon feature representing the estimated origin area of the P1 oil spill 24 hours prior to satellite observation.
 - **`outputs/p1_backward_trajectories.geojson`**: GeoJSON FeatureCollection containing 500 particle LineString backward trajectories tracing the oil drift into the past.
+- **`outputs/p1_forecast_uncertainty.geojson`**: GeoJSON Polygon feature representing the forecasted spill dispersion envelope 24 hours into the future.
+- **`outputs/p1_forward_trajectories.geojson`**: GeoJSON FeatureCollection containing 500 particle LineString forward trajectories.
 
 ---
 

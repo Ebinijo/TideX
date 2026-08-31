@@ -7,8 +7,13 @@ from p1_loader import load_p1_data
 
 
 def prepare_p1_data():
+    """
+    Reproducible environmental data downloader & validator for real P1 spill case.
+    Dynamically ingests P1 metadata & AOI bounds, verifies existing forcing datasets,
+    or fetches missing forcing via CDS API (ERA5) and Copernicus Marine Client (CMEMS).
+    """
     print("=" * 60)
-    print("TideX P2 Environmental Data Setup (Real P1 Case)")
+    print("TideX P2 Environmental Data Setup & Reproducibility Check")
     print("=" * 60)
 
     # 1. Dynamically load P1 satellite observation metadata & AOI bounds
@@ -32,28 +37,16 @@ def prepare_p1_data():
     era5_ready = os.path.exists(target_era5_path)
     cmems_ready = os.path.exists(target_cmems_path)
 
-    # Fallback check for alternate region names
-    if not era5_ready:
-        syn_era5 = os.path.join('data', 'era5_region.nc')
-        if os.path.exists(syn_era5):
-            print(f"[Info] Found synthetic ERA5 file at {syn_era5}")
-
-    if not cmems_ready:
-        for f in os.listdir('data'):
-            if f.endswith('.nc') and 'cmems' in f.lower() and f != 'cmems_p1_2018.nc':
-                print(f"[Info] Found CMEMS file at data/{f}")
-                break
-
     print("\n[Environmental File Status]")
     print(f"ERA5 P1 Forcing  ({target_era5_path}) : {'PRESENT' if era5_ready else 'MISSING'}")
     print(f"CMEMS P1 Forcing ({target_cmems_path}): {'PRESENT' if cmems_ready else 'MISSING'}")
 
     if era5_ready and cmems_ready:
-        print("\nAll required real P1 environmental forcing datasets are present in data/!")
-        print("You can run the simulation using: python test_p2.py")
+        print("\nAll required real P1 2018 environmental forcing datasets are present in data/!")
+        print("Fresh clone reproducibility check passed. You can run: python test_p2.py")
         return True
 
-    # Compute requested temporal & spatial downloading window with margin
+    # Compute requested temporal & spatial downloading window with 1.0 deg margin
     buffer_deg = 1.0
     min_lon = max(-180.0, bounds[0] - buffer_deg)
     max_lon = min(180.0, bounds[2] + buffer_deg)
@@ -61,18 +54,17 @@ def prepare_p1_data():
     max_lat = min(90.0, bounds[3] + buffer_deg)
 
     start_date = (pd.to_datetime(obs_date) - pd.Timedelta(days=2)).strftime("%Y-%m-%d")
-    end_date = (pd.to_datetime(obs_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    end_date = (pd.to_datetime(obs_date) + pd.Timedelta(days=2)).strftime("%Y-%m-%d")
 
     print(f"\n[Download Request Specifications]")
-    print(f"Date Range : {start_date} to {end_date}")
-    print(f"Bounding Box: Lat [{min_lat:.2f}, {max_lat:.2f}] N, Lon [{min_lon:.2f}, {max_lon:.2f}] E")
-    print(f"ERA5 Vars  : 10m_u_component_of_wind, 10m_v_component_of_wind")
-    print(f"CMEMS Vars : uo, vo at surface depth (~0.494m)")
+    print(f"Dataset ERA5  : reanalysis-era5-single-levels (10m_u_component_of_wind, 10m_v_component_of_wind)")
+    print(f"Dataset CMEMS : cmems_mod_glo_phy_my_0.083deg_P1D-m (uo, vo at ~0.494m depth)")
+    print(f"Date Range    : {start_date} to {end_date}")
+    print(f"Bounding Box  : Lat [{min_lat:.2f}, {max_lat:.2f}] N, Lon [{min_lon:.2f}, {max_lon:.2f}] E")
 
     # 2. Download missing ERA5 forcing via cdsapi
     if not era5_ready:
         print("\nAttempting ERA5 download via CDS API...")
-        cds_key = os.environ.get("CDSAPI_KEY")
         try:
             import cdsapi
             client = cdsapi.Client()
@@ -92,7 +84,7 @@ def prepare_p1_data():
                 },
                 target_era5_path
             )
-            print(f"Saved ERA5 data to {target_era5_path}")
+            print(f"Successfully downloaded ERA5 forcing to {target_era5_path}")
             era5_ready = True
         except Exception as e:
             print(f"\n[ERA5 Download Failed] {e}")
@@ -125,7 +117,7 @@ def prepare_p1_data():
                 username=cm_user,
                 password=cm_pass
             )
-            print(f"Saved CMEMS data to {target_cmems_path}")
+            print(f"Successfully downloaded CMEMS forcing to {target_cmems_path}")
             cmems_ready = True
         except Exception as e:
             print(f"\n[CMEMS Download Failed] {e}")
@@ -141,7 +133,7 @@ def prepare_p1_data():
     else:
         print("\n" + "!" * 60)
         print("DATA SETUP WARNING: Environmental forcing files could not be fetched automatically.")
-        print("Please ensure credentials are set or place the NetCDF files manually in data/.")
+        print("Please set your API credentials or verify datasets in data/.")
         print("!" * 60)
         return False
 

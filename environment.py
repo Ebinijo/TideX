@@ -18,8 +18,8 @@ class Environment:
         if era5_path is None:
             # Standard Default Resolution Priority for ERA5
             candidates = [
-                os.path.join('data', 'era5_region.nc'),
                 os.path.join('data', 'era5_p1_2018.nc'),
+                os.path.join('data', 'era5_region.nc'),
             ]
             for cand in candidates:
                 if os.path.exists(cand):
@@ -41,8 +41,8 @@ class Environment:
         if cmems_path is None:
             # Standard Default Resolution Priority for CMEMS
             candidates = [
-                os.path.join('data', 'cmems_region.nc'),
                 os.path.join('data', 'cmems_p1_2018.nc'),
+                os.path.join('data', 'cmems_region.nc'),
             ]
             for cand in candidates:
                 if os.path.exists(cand):
