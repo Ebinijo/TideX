@@ -16,26 +16,57 @@ class Environment:
 
     def __init__(self, era5_path=None, cmems_path=None):
         if era5_path is None:
-            era5_path = os.path.join('data', 'era5_region.nc')
-            if not os.path.exists(era5_path):
-                # Fallback search in data directory
-                nc_files = glob.glob(os.path.join('data', '*.nc'))
-                for f in nc_files:
-                    if 'era5' in f.lower() or 'da1e' in f.lower():
+            # Standard Default Resolution Priority for ERA5
+            candidates = [
+                os.path.join('data', 'era5_region.nc'),
+                os.path.join('data', 'era5_p1_2018.nc'),
+            ]
+            for cand in candidates:
+                if os.path.exists(cand):
+                    era5_path = cand
+                    break
+
+            if era5_path is None:
+                # Dynamic search for ERA5 NetCDF file in data/
+                all_nc = glob.glob(os.path.join('data', '*.nc'))
+                for f in all_nc:
+                    if 'era5' in os.path.basename(f).lower():
                         era5_path = f
                         break
+                if era5_path is None and all_nc:
+                    non_cmems = [f for f in all_nc if 'cmems' not in os.path.basename(f).lower()]
+                    if non_cmems:
+                        era5_path = non_cmems[0]
 
         if cmems_path is None:
-            cmems_path = os.path.join('data', 'cmems_mod_glo_phy-cur_anfc_0.083deg_PT6H-i_1788086797234.nc')
-            if not os.path.exists(cmems_path):
-                nc_files = glob.glob(os.path.join('data', '*cmems*.nc'))
-                if nc_files:
-                    cmems_path = nc_files[0]
+            # Standard Default Resolution Priority for CMEMS
+            candidates = [
+                os.path.join('data', 'cmems_region.nc'),
+                os.path.join('data', 'cmems_p1_2018.nc'),
+            ]
+            for cand in candidates:
+                if os.path.exists(cand):
+                    cmems_path = cand
+                    break
 
-        if not os.path.exists(era5_path):
-            raise FileNotFoundError(f"ERA5 data file not found at {era5_path}")
-        if not os.path.exists(cmems_path):
-            raise FileNotFoundError(f"CMEMS data file not found at {cmems_path}")
+            if cmems_path is None:
+                # Dynamic search for CMEMS NetCDF file in data/
+                all_nc = glob.glob(os.path.join('data', '*.nc'))
+                for f in all_nc:
+                    if 'cmems' in os.path.basename(f).lower():
+                        cmems_path = f
+                        break
+
+        if era5_path is None or not os.path.exists(era5_path):
+            raise FileNotFoundError(
+                f"ERA5 environmental forcing file not found (searched: {era5_path}). "
+                "Please ensure forcing files are in data/ or run 'python setup_data.py'."
+            )
+        if cmems_path is None or not os.path.exists(cmems_path):
+            raise FileNotFoundError(
+                f"CMEMS environmental forcing file not found (searched: {cmems_path}). "
+                "Please ensure forcing files are in data/ or run 'python setup_data.py'."
+            )
 
         print(f"[Environment] Loading ERA5 wind data from {era5_path}")
         self.ds_era5 = xr.open_dataset(era5_path)
